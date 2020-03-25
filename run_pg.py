@@ -1,53 +1,50 @@
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
 from gym import envs
 
-tf.keras.backend.set_floatx("float64")
 print(tf.__version__)
 
 MODE = "reinforce"
-MAX_STEPS = 100
-MAX_EPISODES = 5
-FPS = 100
+MAX_STEPS = 500
+MAX_EPISODES = 1000
+FPS = 40
+BATCH_SIZE = 20
 ENV_NAME = "CartPole-v1"
 
 env = envs.make(ENV_NAME)
 action_space = env.action_space
 
 
-def policy(state):
-    model = tf.keras.models.Sequential([tf.keras.layers.Dense(24, input_shape=(4,), activation="relu", name="dense_1",
-                                                              trainable=True),
-                                        tf.keras.layers.Dense(24, activation="relu", name="dense_2", trainable=True),
-                                        tf.keras.layers.Dense(2, activation="softmax", name="dense_3", trainable=True)])
-    action_probs = model(state)  # (1, K)
+class Params(object):
+    def __init__(self, n_states, n_actions, n_hidden_l1, n_hidden_l2, alpha, gamma):
+        self.n_states, self.n_actions = n_states, n_actions
 
-    action = tfp.distributions.Categorical(probs=action_probs, name='action_sampling').sample(1)
-    action = tf.reshape(action, ())  # ()
+        self.n_hidden_l1, self.n_hidden_l2 = n_hidden_l1, n_hidden_l2
 
-    # action = action_space.sample()  # a_t
-    return action.numpy()
+        self.alpha, self.gamma = alpha, gamma
 
 
 class Actor(tf.keras.Model):
-    def __init__(self):
+    def __init__(self, params: Params):
         super(Actor, self).__init__()
-        self.dense_l1 = tf.keras.layers.Dense(24, input_shape=(4,), activation="relu", name="dense_l1", trainable=True)
-        self.dense_l2 = tf.keras.layers.Dense(24, activation="relu", name="dense_l2", trainable=True)
-        self.dense_l3 = tf.keras.layers.Dense(2, activation="softmax", name="dense_l3", trainable=True)
+        # Policy
+        self.dense_l1 = tf.keras.layers.Dense(params.n_hidden_l1, input_shape=(params.n_states,), activation="relu",
+                                              name="dense_l1", trainable=True)
+        self.dense_l2 = tf.keras.layers.Dense(params.n_hidden_l2, activation="relu", name="dense_l2", trainable=True)
+        self.dense_l3 = tf.keras.layers.Dense(params.n_actions, activation="softmax", name="dense_l3", trainable=True)
 
-        self.grads = None
+        # Actor state
+        self.state, self.probs, self.log_probs, self.action = None, None, None, None
 
-        self.probs, self.log_probs = None, None
-        self.action = None
+        # Discounting factor
+        self.gamma = params.gamma
 
-        self.learning_rate = 0.001
-
-        self.optimizer = tf.keras.optimizers.SGD(lr=self.learning_rate)
-        self.compute_loss = tf.keras.losses.SparseCategoricalCrossentropy(from_logits=True)
+        # Training
+        self.alpha, self.optimizer = params.alpha, tf.keras.optimizers.SGD(lr=params.alpha)
 
     def __call__(self, state):
         """
@@ -56,7 +53,7 @@ class Actor(tf.keras.Model):
         :return:
         """
 
-        with tf.GradientTape(persistent=True) as gt:
+        with tf.GradientTape() as gt:
             # DNN
             a1 = self.dense_l1(state)  # (batch_size, 24)
             a2 = self.dense_l2(a1)  # (batch_size, 24)
@@ -69,63 +66,57 @@ class Actor(tf.keras.Model):
             # Sample action
             self.action = tfp.distributions.Categorical(probs=self.probs, name='action_sampling').sample(1)
             self.action = tf.squeeze(self.action)  # (batch_size, ) or ()
-            print(self.action)
 
-            self.eligibility = self.log_probs[:, self.action]
+            self.action_log_probs = self.log_probs[:, self.action]
 
-        grads = gt.gradient(self.loss, self.trainable_variables)
+        grads = gt.gradient(self.action_log_probs, self.trainable_variables)
 
-        return self.action, grads
+        return self.action.numpy(), grads
 
-        # print(grads)
-        # self.loss = tf.keras.losses.sparse_categorical_crossentropy(self.action, self.probs, from_logits=True)
-        # print(self.loss.shape, self.loss)
+    def compute_returns(self, rewards):
+        assert 0 <= self.gamma <= 1.0
+        if self.gamma == 1.0:
+            returns = np.cumsum(rewards)[::-1]
+        elif self.gamma == 0:
+            returns = rewards
+        else:
+            returns = np.zeros_like(rewards)
+            g = 0  # G_T
+            for t in reversed(range(returns.shape[0])):  # T-1, T-2, ..., 0
+                r = rewards[t]  # r_t+1
+                g = r + self.gamma * g  # G_t = r_t+1 + self.gamma * G_t+1
+                returns[t] = g
 
-    def initialize_gradients(self):
-        self.grads = self.trainable_variables
-        for i, variable in enumerate(self.grads):
-            self.grads[i] = 0 * variable
+        total_return = returns[0]
+        return total_return, returns  # G_0, G_1, ..., G_T-1
 
-    def apply_gradients(self, grads):
+    def apply_gradients(self, returns, grads):
         """
         Apply gradients to training variables. (Gradient Ascent)
         """
-        for i, grad in enumerate(grads):
-            self.trainable_variable[i] = self.trainable_variable[i] + grad
+        for t in range(len(grads)):
+            grads_t = grads[t]
+            return_t = returns[t]
+            # self.optimizer.learning_rate = - self.alpha * self.gamma ** t * return_t
+            self.optimizer.learning_rate = - self.alpha * return_t  # - for Gradient Ascent
+            self.optimizer.apply_gradients(zip(grads_t, self.trainable_variables))
 
 
-def compute_returns(rewards, gamma=1.0):
-    assert 0 <= gamma <= 1.0
-    if gamma == 1.0:
-        returns = np.cumsum(rewards)[::-1]
-    elif gamma == 0:
-        returns = rewards
-    else:
-        returns = np.zeros_like(rewards)
-        g = 0  # G_T
-        for t in reversed(range(returns.shape[0])):  # T-1, T-2, ..., 0
-            r = rewards[t]  # r_t+1
-            g = r + gamma * g  # G_t = r_t+1 + gamma * G_t+1
-            returns[t] = g
-
-    total_return = returns[0]
-    return total_return, returns  # G_0, G_1, ..., G_T-1
-
-
-def episode_rollout(env, policy, render=False):
+def episode_rollout(env, actor, render=False):
     state = env.reset()
     if render:
         env.render(mode='human')
 
     memory = []
-    states, next_states, actions, rewards, dones = [], [], [], [], []
+    states, next_states, actions, rewards, dones, gradients = [], [], [], [], [], []
     done, t = False, 0
     while not done and t < MAX_STEPS:  # t = 0, 1, 2, ..., T-1
         states.append(state)  # s_t
 
-        state = np.reshape(state, (1, -1))
-        action = policy(state)
+        state = np.reshape(state, (1, -1)).astype(np.float32)
+        action, grads = actor(state)
         actions.append(action)  # a_t
+        gradients.append(grads)
 
         t = t + 1
         next_state, reward, done, _ = env.step(action)  # s_t+1, r_t+1
@@ -142,28 +133,54 @@ def episode_rollout(env, policy, render=False):
     # states: s_0, s_1, s_2, ..., s_T-1
     # actions: a_0, a_1, ..., a_T-1
     # rewards: r_1, r_2, ..., r_T
-    return t, np.array(states), np.array(next_states), np.array(actions), np.array(rewards), np.array(dones), memory
+    return t, np.array(states), np.array(next_states), np.array(actions), np.array(rewards), np.array(dones), \
+           gradients, memory
 
 
-# e = 0
-# while e < MAX_EPISODES:
-#     length, states, next_states, actions, rewards, dones, memory = episode_rollout(env, policy, render=True)
-#     total_return, returns = compute_returns(rewards)
-#     print(length, states.shape, actions.shape, rewards.shape)
-#     e = e + 1
-#
-# env.close()
+params = Params(env.observation_space.shape[0], env.action_space.n, 64, 64, 1e-5, 0.999)
 
-# state = np.ones((1, 4))
-# print(policy(state))
-# print(compute_returns(np.ones(10), 0.0))
-# print(compute_returns(np.ones(10), 0.999))
-# print(compute_returns(np.ones(10), 1.0))
+Actor = Actor(params)
+e = 1
+episodes = []
+total_returns = []
+batch_gradients = []
+render = False
+while e < MAX_EPISODES:
+    length, states, next_states, actions, rewards, dones, gradients, memory = episode_rollout(env, Actor, render=render)
+    total_return, returns = Actor.compute_returns(rewards)
 
-Actor = Actor()
+    print("e {:<20} return {:<20} length {:<20}".format(e, np.round(total_return, decimals=3), length))
+    Actor.apply_gradients(returns, batch_gradients)
 
-s = np.ones((1, 4))
-Actor(s)
+    # print(len(batch_gradients), len(gradients))
+    # if not batch_gradients:
+    #     batch_gradients = gradients
+    #
+    # if e % BATCH_SIZE:
+    #     batch_gradients = [gradients[i] + batch_gradients[i] for i in range(len(gradients))]
+    # else:
+    #     batch_gradients = [grad / BATCH_SIZE for grad in batch_gradients]
+    #     Actor.apply_gradients(returns, batch_gradients)
+    #     batch_gradients = [grad * 0 for grad in batch_gradients]
 
-# Actor.get_grads()
-# print(Actor.grad_buffer)
+    total_returns.append(total_return)
+    episodes.append(e)
+    e = e + 1
+
+    # if length == MAX_STEPS and e > MAX_EPISODES // 10:
+    #     render = True
+    # else:
+    #     render = False
+
+    if e == MAX_EPISODES - 50:
+        input(str(e))
+        render = True
+
+env.close()
+
+episodes, total_returns = np.array(episodes), np.array(total_returns)
+
+plt.figure(figsize=(16, 5))
+plt.plot(episodes, total_returns, label="REINFORCE")
+plt.legend()
+plt.show()

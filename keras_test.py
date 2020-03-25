@@ -1,4 +1,5 @@
 import tensorflow as tf
+import tensorflow_probability as tfp
 import matplotlib.pyplot as plt
 
 tf.keras.backend.set_floatx('float64')
@@ -26,13 +27,15 @@ plt.figure()
 plt.imshow(x_test[0, :, :])
 plt.show()
 
-# model = tf.keras.models.Sequential([tf.keras.layers.Dense(24, input_shape=(4,), activation="relu", name="dense_1",
-#                                                           trainable=True),
-#                                     tf.keras.layers.Dense(24, activation="relu", name="dense_2", trainable=True),
-#                                     tf.keras.layers.Dense(2, activation="relu", name="dense_3", trainable=True),
-#                                     tf.keras.layers.Softmax()])
-#
-# for p in model.trainable_weights:
-#     print(p.name, p.shape, p.trainable)
-#     grad = tf.gradients(tf.Variable(2 * p), p)
-#     print(grad)
+def policy(state):
+    model = tf.keras.models.Sequential([tf.keras.layers.Dense(24, input_shape=(4,), activation="relu", name="dense_1",
+                                                              trainable=True),
+                                        tf.keras.layers.Dense(24, activation="relu", name="dense_2", trainable=True),
+                                        tf.keras.layers.Dense(2, activation="softmax", name="dense_3", trainable=True)])
+    action_probs = model(state)  # (1, K)
+
+    action = tfp.distributions.Categorical(probs=action_probs, name='action_sampling').sample(1)
+    action = tf.reshape(action, ())  # ()
+
+    # action = action_space.sample()  # a_t
+    return action.numpy()
