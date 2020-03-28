@@ -1,166 +1,190 @@
+import datetime
 import time
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 import tensorflow_probability as tfp
 from gym import envs
 
+from rl_utils import compute_returns
+
 print(tf.__version__)
 
-MODE = "reinforce"
-MAX_STEPS = 500
-MAX_EPISODES = 1000
-FPS = 40
-BATCH_SIZE = 20
-ENV_NAME = "CartPole-v1"
 
-env = envs.make(ENV_NAME)
-action_space = env.action_space
+class ActorCritic(tf.keras.Model):
+    def __init__(self, n_states, n_actions, n_hidden_l1, n_hidden_l2, alpha_a, alpha_b):
+        super(ActorCritic, self).__init__()
+        # Actor
+        self.actor_dense_l1 = tf.keras.layers.Dense(n_hidden_l1, input_shape=(n_states,), activation="tanh",
+                                                    name="actor_dense_l1", trainable=True)
+        self.actor_dense_l2 = tf.keras.layers.Dense(n_hidden_l2, activation="tanh", name="actor_dense_l2",
+                                                    trainable=True)
+        self.actor_dense_l3 = tf.keras.layers.Dense(n_actions, activation="softmax", name="actor_dense_l3",
+                                                    trainable=True)
 
+        # Baseline
+        self.critic_dense_l1 = tf.keras.layers.Dense(n_hidden_l1, input_shape=(n_states,), activation="tanh",
+                                                     name="critic_dense_l1", trainable=True)
+        self.critic_dense_l2 = tf.keras.layers.Dense(n_hidden_l2, activation="tanh", name="critic_dense_l2",
+                                                     trainable=True)
+        self.critic_dense_l3 = tf.keras.layers.Dense(1, activation=None, name="critic_dense_l3", trainable=True)
 
-class Params(object):
-    def __init__(self, n_states, n_actions, n_hidden_l1, n_hidden_l2, alpha, gamma):
-        self.n_states, self.n_actions = n_states, n_actions
-
-        self.n_hidden_l1, self.n_hidden_l2 = n_hidden_l1, n_hidden_l2
-
-        self.alpha, self.gamma = alpha, gamma
-
-
-class Actor(tf.keras.Model):
-    def __init__(self, params: Params):
-        super(Actor, self).__init__()
-        # Policy
-        self.dense_l1 = tf.keras.layers.Dense(params.n_hidden_l1, input_shape=(params.n_states,), activation="relu",
-                                              name="dense_l1", trainable=True)
-        self.dense_l2 = tf.keras.layers.Dense(params.n_hidden_l2, activation="relu", name="dense_l2", trainable=True)
-        self.dense_l3 = tf.keras.layers.Dense(params.n_actions, activation="softmax", name="dense_l3", trainable=True)
-
-        # Actor state
-        self.state, self.probs, self.log_probs, self.action = None, None, None, None
-
-        # Discounting factor
-        self.gamma = params.gamma
+        self.probs, self.log_probs, = None, None
+        self.action, self.action_log_probs, self.value = None, None, None
 
         # Training
-        self.alpha, self.optimizer = params.alpha, tf.keras.optimizers.SGD(lr=params.alpha)
+        self.alpha_a, self.alpha_b, self.optimizer = alpha_a, alpha_b, tf.keras.optimizers.SGD()
 
-    def __call__(self, state):
-        """
-        Works for batch_size = 1
-        :param state:
-        :return:
-        """
+        # Initialize variables
+        _ = self.act(np.zeros((1, n_states)).astype(np.float32))
+        _ = self.state_value(np.zeros((1, n_states)).astype(np.float32))
 
+        self.actor_vars = None, None
+        for var in self.trainable_variables:
+            print(var.name, var.shape)
+
+    @tf.function(autograph=False)
+    def act(self, state):
         with tf.GradientTape() as gt:
-            # DNN
-            a1 = self.dense_l1(state)  # (batch_size, 24)
-            a2 = self.dense_l2(a1)  # (batch_size, 24)
-            a3 = self.dense_l3(a2)  # (batch_size, num_classes)
+            # Policy DNN
+            a1 = self.actor_dense_l1(state)  # (n_batch, n_hidden_l1)
+            a2 = self.actor_dense_l2(a1)  # (n_batch, n_hidden_l2)
+            a3 = self.actor_dense_l3(a2)  # (n_batch, n_actions)
 
             # Probabilities
-            self.probs = a3  # (batch_size, num_classes)
-            self.log_probs = tf.math.log(a3)  # (batch_size, num_classes)
+            self.probs = a3  # (n_batch, n_actions)
+            self.log_probs = tf.math.log(a3)  # (n_batch, n_actions)
 
             # Sample action
-            self.action = tfp.distributions.Categorical(probs=self.probs, name='action_sampling').sample(1)
-            self.action = tf.squeeze(self.action)  # (batch_size, ) or ()
+            self.action = tfp.distributions.Categorical(probs=self.probs).sample(1)
+            self.action = tf.squeeze(self.action)  # (n_batch, ) or ()
 
             self.action_log_probs = self.log_probs[:, self.action]
 
-        grads = gt.gradient(self.action_log_probs, self.trainable_variables)
+        grads = gt.gradient(self.action_log_probs, self.actor_variables())
 
-        return self.action.numpy(), grads
+        return self.action, grads
 
-    def compute_returns(self, rewards):
-        assert 0 <= self.gamma <= 1.0
-        if self.gamma == 1.0:
-            returns = np.cumsum(rewards)[::-1]
-        elif self.gamma == 0:
-            returns = rewards
-        else:
-            returns = np.zeros_like(rewards)
-            g = 0  # G_T
-            for t in reversed(range(returns.shape[0])):  # T-1, T-2, ..., 0
-                r = rewards[t]  # r_t+1
-                g = r + self.gamma * g  # G_t = r_t+1 + self.gamma * G_t+1
-                returns[t] = g
+    @tf.function(autograph=False)
+    def state_value(self, state):
+        assert state.shape[0] == 1
+        with tf.GradientTape() as gt:
+            a1 = self.critic_dense_l1(state)  # (n_batch, n_hidden_l1)
+            a2 = self.critic_dense_l2(a1)  # (n_batch, n_hidden_l2)
+            a3 = self.critic_dense_l3(a2)  # (n_batch, 1)
 
-        total_return = returns[0]
-        return total_return, returns  # G_0, G_1, ..., G_T-1
+            # Value function
+            self.value = tf.squeeze(a3)  # (n_batch, ) or ()
 
-    def apply_gradients(self, returns, grads):
-        """
-        Apply gradients to training variables. (Gradient Ascent)
-        """
-        for t in range(len(grads)):
-            grads_t = grads[t]
-            return_t = returns[t]
-            # self.optimizer.learning_rate = - self.alpha * self.gamma ** t * return_t
-            self.optimizer.learning_rate = - self.alpha * return_t  # - for Gradient Ascent
-            self.optimizer.apply_gradients(zip(grads_t, self.trainable_variables))
+        grads = gt.gradient(self.value, self.critic_variables())
+
+        return self.value, grads
+
+    @tf.function(autograph=False)
+    def apply_gradients_b(self, grads, alpha_factor):
+        # - for Gradient Ascent
+        self.optimizer.learning_rate = - self.alpha_b * alpha_factor
+        self.optimizer.apply_gradients(zip(grads, self.critic_variables()))
+
+    @tf.function(autograph=False)
+    def apply_gradients_a(self, grads, alpha_factor):
+        # - for Gradient Ascent
+        self.optimizer.learning_rate = - self.alpha_a * alpha_factor
+        self.optimizer.apply_gradients(zip(grads, self.actor_variables()))
+
+    def actor_variables(self):
+        return [var for var in self.trainable_variables if "actor" in var.name]
+
+    def critic_variables(self):
+        return [var for var in self.trainable_variables if "critic" in var.name]
 
 
-def episode_rollout(env, actor, render=False):
-    state = env.reset()
-    if render:
-        env.render(mode='human')
+if __name__ == "__main__":
+    start = time.time()
 
-    memory = []
-    states, next_states, actions, rewards, dones, gradients = [], [], [], [], [], []
-    done, t = False, 0
-    while not done and t < MAX_STEPS:  # t = 0, 1, 2, ..., T-1
-        states.append(state)  # s_t
+    MODE = "BASELINE"
+    MAX_STEPS = 500
+    MAX_EPISODES = 1000
+    GAMMA = 0.999
+    FPS = 100
+    DECAY_PERIOD = 2000
+    ENV_NAME = "CartPole-v1"
+    render = False
 
-        state = np.reshape(state, (1, -1)).astype(np.float32)
-        action, grads = actor(state)
-        actions.append(action)  # a_t
-        gradients.append(grads)
+    # Environment
+    env = envs.make(ENV_NAME)
 
-        t = t + 1
-        next_state, reward, done, _ = env.step(action)  # s_t+1, r_t+1
-        rewards.append(reward)  # r_t+1
-        dones.append(done)
-        next_states.append(next_state)
+    actor_critic = ActorCritic(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001, 0.00001)
+    # Training
+    e, episodes, total_returns, alpha_decay = 1, [], [], 1.0
+    while e < MAX_EPISODES:
+        # Generate episode
+        state = np.reshape(env.reset(), (1, -1)).astype(np.float32)  # s_0
+        action, grads = actor_critic.act(state)  # a_0, grads_0
+        action = action.numpy()
 
-        memory.append((state, action, reward, next_states))  # (s_t, a_t, r_t+1, s_t+1)
-        state = next_state
         if render:
-            time.sleep(1.0 / FPS)
-            env.render()
+            env.render(mode='human')
 
-    # states: s_0, s_1, s_2, ..., s_T-1
-    # actions: a_0, a_1, ..., a_T-1
-    # rewards: r_1, r_2, ..., r_T
-    return t, np.array(states), np.array(next_states), np.array(actions), np.array(rewards), np.array(dones), \
-           gradients, memory
+        rewards = []
+        done, t = False, 0
+        while not done and t < MAX_STEPS:  # t = 0, 1, 2, ..., T-1
 
+            t = t + 1
+            next_state, reward, done, _ = env.step(action)  # s_t+1, r_t+1
+            next_state = np.reshape(next_state, (1, -1)).astype(np.float32)
+            rewards.append(reward)
 
-params = Params(env.observation_space.shape[0], env.action_space.n, 64, 64, 1e-5, 0.999)
+            # Update weights
+            state_value, v_grads = actor_critic.state_value(state)
+            state_value = state_value.numpy()
+            next_state_value, _ = actor_critic.state_value(next_state)
+            next_state_value = next_state_value.numpy()
 
-Actor = Actor(params)
-e = 1
-episodes = []
-total_returns = []
-batch_gradients = []
-render = False
-while e < MAX_EPISODES:
-    length, states, next_states, actions, rewards, dones, gradients, memory = episode_rollout(env, Actor, render=render)
-    total_return, returns = Actor.compute_returns(rewards)
+            delta = reward + GAMMA * next_state_value - state_value
 
-    print("e {:<20} return {:<20} length {:<20}".format(e, np.round(total_return, decimals=3), length))
-    Actor.apply_gradients(returns, gradients)
-    total_returns.append(total_return)
-    episodes.append(e)
-    e = e + 1
+            actor_critic.apply_gradients_b(v_grads, tf.Variable(delta * alpha_decay))  # Update critic weights
+            actor_critic.apply_gradients_a(grads,
+                                           tf.Variable(
+                                               delta * np.power(GAMMA, t) * alpha_decay))  # Update actor weights
 
+            # Act
+            next_action, next_grads = actor_critic.act(next_state)  # a_t+1, grads_t+1
+            next_action = next_action.numpy()
 
-env.close()
+            state, action, grads = next_state, next_action, next_grads
 
-episodes, total_returns = np.array(episodes), np.array(total_returns)
+            if render:
+                time.sleep(1.0 / FPS)
+                env.render()
 
-plt.figure(figsize=(16, 5))
-plt.plot(episodes, total_returns, label="REINFORCE")
-plt.legend()
-plt.show()
+        e_length = t
+        env.close()
+
+        total_return, returns = compute_returns(np.array(rewards), GAMMA)
+        print("e {:<20} return {:<20} length {:<20}".format(e, np.round(total_return, decimals=3), e_length))
+        total_returns.append(total_return), episodes.append(e)
+
+        alpha_decay = np.exp(- e / DECAY_PERIOD)
+        e = e + 1
+
+    episodes = np.array(episodes)
+    total_returns = np.array(total_returns)
+    average_returns = pd.Series(total_returns).rolling(100, min_periods=1).mean().values
+
+    fig, ax = plt.subplots(1, 2, figsize=(16, 5))
+    ax[0].plot(episodes, total_returns, label=f"{MODE}")
+    ax[1].plot(episodes, average_returns, label=f"avg_{MODE}")
+    ax[0].set_title("returns")
+    ax[1].set_title("average returns")
+    ax[0].set_ylim(bottom=0)
+    ax[1].set_ylim(bottom=0)
+    ax[0].legend()
+    ax[1].legend()
+    fig.savefig("./results/{}_result.png".format(datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")))
+    fig.show()
+
+    end = time.time()
+    print(f"Finished in {end - start} s")

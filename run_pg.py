@@ -1,4 +1,5 @@
 import time
+import datetime
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -11,11 +12,14 @@ from rl_utils import compute_returns
 
 print(tf.__version__)
 
+start = time.time()
+
 MODE = "BASELINE"
-MAX_STEPS = 400
-MAX_EPISODES = 2500
+MAX_STEPS = 300
+MAX_EPISODES = 4000
 GAMMA = 0.999
 FPS = 100
+DECAY_PERIOD = 2000
 ENV_NAME = "CartPole-v1"
 render = False
 
@@ -24,18 +28,19 @@ env = envs.make(ENV_NAME)
 
 results = []
 for MODE in ["RANDOM", "REINFORCE", "BASELINE", "CONSTANT_BASELINE"]:
+# for MODE in ["BASELINE"]:
     # Actor
     if MODE == "REINFORCE":
         actor = ActorReinforce(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001)
     elif MODE == "BASELINE":
         actor = ActorBaseline(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001, 0.00001)
     elif MODE == "CONSTANT_BASELINE":
-        actor = ActorConstant(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001, 0.00001)
+        actor = ActorConstant(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 4, 0.00001, 0.00001)
     else:
         actor = ActorRandom(env.action_space.n)
 
     # Training
-    e, episodes, total_returns = 1, [], []
+    e, episodes, total_returns, alpha_decay = 1, [], [], 1.0
     while e < MAX_EPISODES:
 
         # Generate episode
@@ -84,15 +89,18 @@ for MODE in ["RANDOM", "REINFORCE", "BASELINE", "CONSTANT_BASELINE"]:
                 state_value = state_value.numpy()
                 delta = return_t - state_value
 
-                actor.apply_gradients_b(v_grads, delta)  # Update baseline weights
-                actor.apply_gradients_a(grads, delta * np.power(GAMMA, t))  # Update actor weights
+                actor.apply_gradients_b(v_grads, tf.Variable(delta * alpha_decay))  # Update baseline weights
+                actor.apply_gradients_a(grads,
+                                        tf.Variable(delta * np.power(GAMMA, t) * alpha_decay))  # Update actor weights
         else:
             for t in range(e_length):
                 return_t, grads_t = returns[t], gradients[t]
-                actor.apply_gradients(grads_t, return_t * (np.power(GAMMA, t)))
+                actor.apply_gradients(grads_t, tf.Variable(return_t * np.power(GAMMA, t) * alpha_decay))
 
         print("e {:<20} return {:<20} length {:<20}".format(e, np.round(total_return, decimals=3), len(states)))
         total_returns.append(total_return), episodes.append(e)
+
+        alpha_decay = np.exp(- e / DECAY_PERIOD)
         e = e + 1
 
     episodes = np.array(episodes)
@@ -111,5 +119,10 @@ ax[0].set_title("returns")
 ax[1].set_title("average returns")
 ax[0].set_ylim(bottom=0)
 ax[1].set_ylim(bottom=0)
-plt.legend()
-plt.show()
+ax[0].legend()
+ax[1].legend()
+fig.savefig("./results/{}_result.png".format(datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")))
+fig.show()
+
+end = time.time()
+print(f"Finished in {end - start} s")

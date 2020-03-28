@@ -39,6 +39,7 @@ class ActorReinforce(tf.keras.Model):
 
         return self.action, grads
 
+    @tf.function(autograph=False)
     def apply_gradients(self, grads, alpha_factor):
         # - for Gradient Ascent
         self.optimizer.learning_rate = - self.alpha * alpha_factor
@@ -132,11 +133,13 @@ class ActorBaseline(tf.keras.Model):
 
         return self.value, grads
 
+    @tf.function(autograph=False)
     def apply_gradients_b(self, grads, alpha_factor):
         # - for Gradient Ascent
         self.optimizer.learning_rate = - self.alpha_b * alpha_factor
         self.optimizer.apply_gradients(zip(grads, self.baseline_variables()))
 
+    @tf.function(autograph=False)
     def apply_gradients_a(self, grads, alpha_factor):
         # - for Gradient Ascent
         self.optimizer.learning_rate = - self.alpha_a * alpha_factor
@@ -206,15 +209,17 @@ class ActorConstant(tf.keras.Model):
             # Value function
             self.value = tf.squeeze(self.baseline)  # (n_batch, ) or ()
 
-        grads = gt.gradient(self.value, self.baseline_variables())
+        grads = gt.gradient(self.value, self.baseline)
 
         return self.value, grads
 
+    @tf.function(autograph=False)
     def apply_gradients_b(self, grads, alpha_factor):
         # - for Gradient Ascent
         self.optimizer.learning_rate = - self.alpha_b * alpha_factor
-        self.optimizer.apply_gradients(zip(grads, self.baseline_variables()))
+        self.optimizer.apply_gradients([(grads, self.baseline)])
 
+    @tf.function(autograph=False)
     def apply_gradients_a(self, grads, alpha_factor):
         # - for Gradient Ascent
         self.optimizer.learning_rate = - self.alpha_a * alpha_factor
@@ -223,5 +228,3 @@ class ActorConstant(tf.keras.Model):
     def actor_variables(self):
         return [var for var in self.trainable_variables if "actor" in var.name]
 
-    def baseline_variables(self):
-        return [var for var in self.trainable_variables if "baseline" in var.name]
