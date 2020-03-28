@@ -14,7 +14,7 @@ print(tf.__version__)
 
 
 class ActorCritic(tf.keras.Model):
-    def __init__(self, n_states, n_actions, n_hidden_l1, n_hidden_l2, alpha_a, alpha_b):
+    def __init__(self, n_states, n_actions, n_hidden_l1, n_hidden_l2, alpha_a, alpha_c):
         super(ActorCritic, self).__init__()
         # Actor
         self.actor_dense_l1 = tf.keras.layers.Dense(n_hidden_l1, input_shape=(n_states,), activation="tanh",
@@ -35,7 +35,7 @@ class ActorCritic(tf.keras.Model):
         self.action, self.action_log_probs, self.value = None, None, None
 
         # Training
-        self.alpha_a, self.alpha_b, self.optimizer = alpha_a, alpha_b, tf.keras.optimizers.SGD()
+        self.alpha_a, self.alpha_c, self.optimizer = alpha_a, alpha_c, tf.keras.optimizers.SGD()
 
         # Initialize variables
         _ = self.act(np.zeros((1, n_states)).astype(np.float32))
@@ -83,9 +83,9 @@ class ActorCritic(tf.keras.Model):
         return self.value, grads
 
     @tf.function(autograph=False)
-    def apply_gradients_b(self, grads, alpha_factor):
+    def apply_gradients_c(self, grads, alpha_factor):
         # - for Gradient Ascent
-        self.optimizer.learning_rate = - self.alpha_b * alpha_factor
+        self.optimizer.learning_rate = - self.alpha_c * alpha_factor
         self.optimizer.apply_gradients(zip(grads, self.critic_variables()))
 
     @tf.function(autograph=False)
@@ -104,9 +104,9 @@ class ActorCritic(tf.keras.Model):
 if __name__ == "__main__":
     start = time.time()
 
-    MODE = "BASELINE"
+    MODE = "AC"
     MAX_STEPS = 500
-    MAX_EPISODES = 1000
+    MAX_EPISODES = 5000
     GAMMA = 0.999
     FPS = 100
     DECAY_PERIOD = 2000
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     # Environment
     env = envs.make(ENV_NAME)
 
-    actor_critic = ActorCritic(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001, 0.00001)
+    actor_critic = ActorCritic(env.observation_space.shape[0], env.action_space.n, 2 ** 6, 2 ** 6, 0.001, 0.001)
     # Training
     e, episodes, total_returns, alpha_decay = 1, [], [], 1.0
     while e < MAX_EPISODES:
@@ -140,12 +140,16 @@ if __name__ == "__main__":
             # Update weights
             state_value, v_grads = actor_critic.state_value(state)
             state_value = state_value.numpy()
-            next_state_value, _ = actor_critic.state_value(next_state)
-            next_state_value = next_state_value.numpy()
+
+            if done:
+                next_state_value = 0.0
+            else:
+                next_state_value, _ = actor_critic.state_value(next_state)
+                next_state_value = next_state_value.numpy()
 
             delta = reward + GAMMA * next_state_value - state_value
 
-            actor_critic.apply_gradients_b(v_grads, tf.Variable(delta * alpha_decay))  # Update critic weights
+            actor_critic.apply_gradients_c(v_grads, tf.Variable(delta * alpha_decay))  # Update critic weights
             actor_critic.apply_gradients_a(grads,
                                            tf.Variable(
                                                delta * np.power(GAMMA, t) * alpha_decay))  # Update actor weights
@@ -161,7 +165,6 @@ if __name__ == "__main__":
                 env.render()
 
         e_length = t
-        env.close()
 
         total_return, returns = compute_returns(np.array(rewards), GAMMA)
         print("e {:<20} return {:<20} length {:<20}".format(e, np.round(total_return, decimals=3), e_length))
@@ -170,6 +173,7 @@ if __name__ == "__main__":
         alpha_decay = np.exp(- e / DECAY_PERIOD)
         e = e + 1
 
+    env.close()
     episodes = np.array(episodes)
     total_returns = np.array(total_returns)
     average_returns = pd.Series(total_returns).rolling(100, min_periods=1).mean().values
@@ -183,7 +187,7 @@ if __name__ == "__main__":
     ax[1].set_ylim(bottom=0)
     ax[0].legend()
     ax[1].legend()
-    fig.savefig("./results/{}_result.png".format(datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")))
+    fig.savefig("./results/{}_ac_result.png".format(datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")))
     fig.show()
 
     end = time.time()

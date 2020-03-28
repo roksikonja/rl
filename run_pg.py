@@ -121,7 +121,7 @@ ax[0].set_ylim(bottom=0)
 ax[1].set_ylim(bottom=0)
 ax[0].legend()
 ax[1].legend()
-fig.savefig("./results/{}_result.png".format(datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")))
+fig.savefig("./results/{}_pg_result.png".format(datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")))
 fig.show()
 
 end = time.time()
