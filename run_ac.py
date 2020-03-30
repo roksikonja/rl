@@ -119,7 +119,7 @@ if __name__ == "__main__":
     actor_critic = ActorCritic(env.observation_space.shape[0], env.action_space.n, 2 ** 6, 2 ** 6, 0.001, 0.001)
     # Training
     e, episodes, total_returns, alpha_decay = 1, [], [], 1.0
-    while e < MAX_EPISODES:
+    for e in range(1, MAX_EPISODES + 1):
         # Generate episode
         state = np.reshape(env.reset(), (1, -1)).astype(np.float32)  # s_0
         action, grads = actor_critic.act(state)  # a_0, grads_0
@@ -171,7 +171,6 @@ if __name__ == "__main__":
         total_returns.append(total_return), episodes.append(e)
 
         alpha_decay = np.exp(- e / DECAY_PERIOD)
-        e = e + 1
 
     env.close()
     episodes = np.array(episodes)
