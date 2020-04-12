@@ -41,7 +41,7 @@ class GymEnvironment(AbstractEnvironment):
             observation_space=self.env.observation_space,
             num_actions=num_actions,
             num_states=num_states,
-            num_observations=num_states
+            num_observations=num_states,
         )
         self._time = 0
 
@@ -53,7 +53,7 @@ class GymEnvironment(AbstractEnvironment):
             next_state = self.num_states - 1
         return next_state, reward, done, info
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         """See `AbstractEnvironment.render'."""
         self.env.render(mode)
 
@@ -76,12 +76,12 @@ class GymEnvironment(AbstractEnvironment):
 
     @state.setter
     def state(self, value):
-        if hasattr(self.env, 'state'):
+        if hasattr(self.env, "state"):
             self.env.state = value
-        elif hasattr(self.env, 's'):
+        elif hasattr(self.env, "s"):
             self.env.s = value
         else:
-            raise NotImplementedError('Strange state')
+            raise NotImplementedError("Strange state")
 
     @property
     def time(self):

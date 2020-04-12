@@ -19,11 +19,12 @@ class ODESystem(AbstractSystem):
     # integrator : integrate.OdeSolver
     """
 
-    def __init__(self, func, step_size, dim_state, dim_action,
-                 integrator=integrate.RK45):
-        super().__init__(dim_state=dim_state,
-                         dim_action=dim_action,
-                         )
+    def __init__(
+        self, func, step_size, dim_state, dim_action, integrator=integrate.RK45
+    ):
+        super().__init__(
+            dim_state=dim_state, dim_action=dim_action,
+        )
 
         self.step_size = step_size
         self.func = func
@@ -33,10 +34,11 @@ class ODESystem(AbstractSystem):
 
     def step(self, action):
         """See `AbstractSystem.step'."""
-        integrator = self.integrator(lambda t, y: self.func(t, y, action), 0,
-                                     self.state, t_bound=self.step_size)
+        integrator = self.integrator(
+            lambda t, y: self.func(t, y, action), 0, self.state, t_bound=self.step_size
+        )
 
-        while integrator.status == 'running':
+        while integrator.status == "running":
             integrator.step()
         self.state = integrator.y
         self._time += self.step_size

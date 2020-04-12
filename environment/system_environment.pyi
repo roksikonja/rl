@@ -9,9 +9,10 @@ class SystemEnvironment(AbstractEnvironment):
     termination: Callable[..., Done]
     initial_state: Callable[..., State]
     _time: float
-
-
-    def __init__(self, system: AbstractSystem,
-                 initial_state: Union[State, Callable[..., State]] = None,
-                 reward: Callable[..., Reward] = None,
-                 termination: Callable[..., Done] = None) -> None: ...
+    def __init__(
+        self,
+        system: AbstractSystem,
+        initial_state: Union[State, Callable[..., State]] = None,
+        reward: Callable[..., Reward] = None,
+        termination: Callable[..., Done] = None,
+    ) -> None: ...

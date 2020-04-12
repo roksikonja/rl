@@ -30,9 +30,17 @@ class AbstractEnvironment(object, metaclass=ABCMeta):
 
     """
 
-    def __init__(self, dim_state, dim_action, observation_space, action_space,
-                 dim_observation=None, num_states=None, num_actions=None,
-                 num_observations=None):
+    def __init__(
+        self,
+        dim_state,
+        dim_action,
+        observation_space,
+        action_space,
+        dim_observation=None,
+        num_states=None,
+        num_actions=None,
+        num_observations=None,
+    ):
         super().__init__()
         self.dim_action = dim_action
         self.dim_state = dim_state
@@ -76,7 +84,7 @@ class AbstractEnvironment(object, metaclass=ABCMeta):
         """
         raise NotImplementedError
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         """Render the environment.
 
         The set of supported modes varies per environment. (And some

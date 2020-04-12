@@ -78,18 +78,21 @@ class AbstractSystem(object, metaclass=ABCMeta):
         """
         raise NotImplementedError
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         """Render system."""
         pass
 
     @property
     def action_space(self):
         """Return action space."""
-        return spaces.Box(np.array([-1e10] * self.dim_action),
-                          np.array([1e10] * self.dim_action))
+        return spaces.Box(
+            np.array([-1e10] * self.dim_action), np.array([1e10] * self.dim_action)
+        )
 
     @property
     def observation_space(self):
         """Return observation space."""
-        return spaces.Box(np.array([-1e10] * self.dim_observation),
-                          np.array([1e10] * self.dim_observation))
+        return spaces.Box(
+            np.array([-1e10] * self.dim_observation),
+            np.array([1e10] * self.dim_observation),
+        )

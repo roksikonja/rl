@@ -24,7 +24,7 @@ class SystemEnvironment(AbstractEnvironment):
             dim_action=system.dim_action,
             dim_observation=system.dim_observation,
             action_space=system.action_space,
-            observation_space=system.observation_space
+            observation_space=system.observation_space,
         )
         self.reward = reward
         self.system = system
@@ -38,7 +38,7 @@ class SystemEnvironment(AbstractEnvironment):
         else:
             self.initial_state = initial_state
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         """See `AbstractEnvironment.render'."""
         self.system.render(mode=mode)
 

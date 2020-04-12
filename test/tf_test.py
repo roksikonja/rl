@@ -7,7 +7,9 @@ alpha = 0.01
 gamma = 0.99
 
 optimizer = tf.keras.optimizers.SGD(learning_rate=alpha)
-policy = tf.keras.Sequential([tf.keras.layers.Dense(2, input_shape=(4, ), name="dense_1")])
+policy = tf.keras.Sequential(
+    [tf.keras.layers.Dense(2, input_shape=(4,), name="dense_1")]
+)
 
 with tf.GradientTape(watch_accessed_variables=True) as gt:
     gt.watch(policy.trainable_weights)

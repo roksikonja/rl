@@ -30,10 +30,7 @@ class InvertedPendulum(ODESystem):
         self.gravity = gravity
 
         super().__init__(
-            func=self._ode,
-            step_size=step_size,
-            dim_action=1,
-            dim_state=2,
+            func=self._ode, step_size=step_size, dim_action=1, dim_state=2,
         )
         self.viewer = None
         self.last_action = None
@@ -59,31 +56,29 @@ class InvertedPendulum(ODESystem):
         friction = self.friction
         inertia = self.inertia
 
-        a = np.array([[0, 1],
-                      [gravity / length, -friction / inertia]])
+        a = np.array([[0, 1], [gravity / length, -friction / inertia]])
 
-        b = np.array([[0],
-                      [1 / inertia]])
+        b = np.array([[0], [1 / inertia]])
 
         sys = signal.StateSpace(a, b, np.eye(2), np.zeros((2, 1)))
         sysd = sys.to_discrete(self.step_size)
         return LinearSystem(sysd.A, sysd.B)
 
-    def render(self, mode='human'):
+    def render(self, mode="human"):
         """Render pendulum."""
         if self.viewer is None:
             self.viewer = rendering.Viewer(500, 500)
             self.viewer.set_bounds(-2.2, 2.2, -2.2, 2.2)
-            rod = rendering.make_capsule(1, .2)
-            rod.set_color(.8, .3, .3)
+            rod = rendering.make_capsule(1, 0.2)
+            rod.set_color(0.8, 0.3, 0.3)
             self.pole_transform = rendering.Transform()
             rod.add_attr(self.pole_transform)
             self.viewer.add_geom(rod)
-            axle = rendering.make_circle(.05)
+            axle = rendering.make_circle(0.05)
             axle.set_color(0, 0, 0)
             self.viewer.add_geom(axle)
-            fname = os.path.dirname(rendering.__file__) + '/assets/clockwise.png'
-            self.img = rendering.Image(fname, 1., 1.)
+            fname = os.path.dirname(rendering.__file__) + "/assets/clockwise.png"
+            self.img = rendering.Image(fname, 1.0, 1.0)
             self.imgtrans = rendering.Transform()
             self.img.add_attr(self.imgtrans)
 
@@ -92,7 +87,7 @@ class InvertedPendulum(ODESystem):
         if self.last_action:
             self.imgtrans.scale = (-self.last_action / 2, np.abs(self.last_action) / 2)
 
-        return self.viewer.render(return_rgb_array=mode == 'rgb_array')
+        return self.viewer.render(return_rgb_array=mode == "rgb_array")
 
     def _ode(self, _, state, action):
         """Compute the state time-derivative.
@@ -117,8 +112,10 @@ class InvertedPendulum(ODESystem):
 
         angle, angular_velocity = state
 
-        x_ddot = (gravity / length * np.sin(angle)
-                  + action / inertia
-                  - friction / inertia * angular_velocity)
+        x_ddot = (
+            gravity / length * np.sin(angle)
+            + action / inertia
+            - friction / inertia * angular_velocity
+        )
 
         return np.array((angular_velocity, x_ddot))

@@ -1,5 +1,5 @@
-import time
 import datetime
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -7,8 +7,8 @@ import pandas as pd
 import tensorflow as tf
 from gym import envs
 
-from pg_utils import ActorReinforce, ActorBaseline, ActorRandom, ActorConstant
-from rl_utils import compute_returns
+from lib.pg_utils import ActorReinforce, ActorBaseline, ActorRandom, ActorConstant
+from lib.rl_utils import compute_returns
 
 print(tf.__version__)
 
@@ -16,7 +16,7 @@ start = time.time()
 
 MODE = "BASELINE"
 MAX_STEPS = 300
-MAX_EPISODES = 4000
+MAX_EPISODES = 100
 GAMMA = 0.999
 FPS = 100
 DECAY_PERIOD = 2000
@@ -28,14 +28,29 @@ env = envs.make(ENV_NAME)
 
 results = []
 for MODE in ["RANDOM", "REINFORCE", "BASELINE", "CONSTANT_BASELINE"]:
-# for MODE in ["BASELINE"]:
     # Actor
     if MODE == "REINFORCE":
-        actor = ActorReinforce(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001)
+        actor = ActorReinforce(
+            env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001
+        )
     elif MODE == "BASELINE":
-        actor = ActorBaseline(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 5, 0.00001, 0.00001)
+        actor = ActorBaseline(
+            env.observation_space.shape[0],
+            env.action_space.n,
+            2 ** 5,
+            2 ** 5,
+            0.00001,
+            0.00001,
+        )
     elif MODE == "CONSTANT_BASELINE":
-        actor = ActorConstant(env.observation_space.shape[0], env.action_space.n, 2 ** 5, 2 ** 4, 0.00001, 0.00001)
+        actor = ActorConstant(
+            env.observation_space.shape[0],
+            env.action_space.n,
+            2 ** 5,
+            2 ** 4,
+            0.00001,
+            0.00001,
+        )
     else:
         actor = ActorRandom(env.action_space.n)
 
@@ -49,9 +64,14 @@ for MODE in ["RANDOM", "REINFORCE", "BASELINE", "CONSTANT_BASELINE"]:
         action = action.numpy()
 
         if render:
-            env.render(mode='human')
+            env.render(mode="human")
 
-        states, next_states, actions, next_actions, rewards, gradients = [], [], [], [], [], []
+        states = []
+        next_states = []
+        actions = []
+        next_actions = []
+        rewards = []
+        gradients = []
         done, t = False, 0
         while not done and t < MAX_STEPS:  # t = 0, 1, 2, ..., T-1
             states.append(state)  # s_t
@@ -89,18 +109,27 @@ for MODE in ["RANDOM", "REINFORCE", "BASELINE", "CONSTANT_BASELINE"]:
                 state_value = state_value.numpy()
                 delta = return_t - state_value
 
-                actor.apply_gradients_b(v_grads, tf.Variable(delta * alpha_decay))  # Update baseline weights
-                actor.apply_gradients_a(grads,
-                                        tf.Variable(delta * np.power(GAMMA, t) * alpha_decay))  # Update actor weights
+                actor.apply_gradients_b(
+                    v_grads, tf.Variable(delta * alpha_decay)
+                )  # Update baseline weights
+                actor.apply_gradients_a(
+                    grads, tf.Variable(delta * np.power(GAMMA, t) * alpha_decay)
+                )  # Update actor weights
         else:
             for t in range(e_length):
                 return_t, grads_t = returns[t], gradients[t]
-                actor.apply_gradients(grads_t, tf.Variable(return_t * np.power(GAMMA, t) * alpha_decay))
+                actor.apply_gradients(
+                    grads_t, tf.Variable(return_t * np.power(GAMMA, t) * alpha_decay)
+                )
 
-        print("e {:<20} return {:<20} length {:<20}".format(e, np.round(total_return, decimals=3), len(states)))
+        print(
+            "e {:<20} return {:<20} length {:<20}".format(
+                e, np.round(total_return, decimals=3), len(states)
+            )
+        )
         total_returns.append(total_return), episodes.append(e)
 
-        alpha_decay = np.exp(- e / DECAY_PERIOD)
+        alpha_decay = np.exp(-e / DECAY_PERIOD)
         e = e + 1
 
     episodes = np.array(episodes)
@@ -121,7 +150,11 @@ ax[0].set_ylim(bottom=0)
 ax[1].set_ylim(bottom=0)
 ax[0].legend()
 ax[1].legend()
-fig.savefig("./results/{}_pg_result.png".format(datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")))
+fig.savefig(
+    "./results/{}_pg_result.png".format(
+        datetime.datetime.now().strftime(f"%Y-%m-%d_%H-%M-%S")
+    )
+)
 fig.show()
 
 end = time.time()
