@@ -37,6 +37,8 @@ def episode_rollout(env, actor, max_timesteps, render=False, fps=100):
 
         state = np.reshape(state, (1, -1)).astype(np.float32)
         action, grads = actor.act(state)
+        action = action.numpy()
+
         actions.append(action)  # a_t
         gradients.append(grads)  # grad_t
 
@@ -54,7 +56,6 @@ def episode_rollout(env, actor, max_timesteps, render=False, fps=100):
         if done:
             break
 
-    env.close()
     # states: s_0, s_1, s_2, ..., s_T-1
     # actions: a_0, a_1, ..., a_T-1
     # rewards: r_1, r_2, ..., r_T
