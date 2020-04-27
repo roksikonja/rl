@@ -1,7 +1,7 @@
 import gym
 import numpy as np
 
-from lib.cem_utils import CEMAgent
+from lib.cem_utils import CEMAgentR
 from lib.cem_utils import parse_arguments, episode_rollout
 from lib.rl_utils import compute_returns
 
@@ -10,18 +10,14 @@ if __name__ == "__main__":
 
     # np.random.seed(0)
     env = gym.make("CartPole-v1")
-    actor = CEMAgent(env.observation_space.shape[0], env.action_space.n)
-
-    # states (T, 4)
-    # actions (T, )
-    # rewards (T, )
-    # returns (T, )
+    actor = CEMAgentR(env.observation_space.shape[0], env.action_space.n)
 
     print("TRAINING")
     best_n_samples = int(np.round(args.best_frac * args.n_samples))
     for i in range(args.n_iters):
-        samples_Wb = np.random.multivariate_normal(actor.mean, np.diag(actor.variance),
-                                                   args.n_samples)  # (n_samples, n_states + 1)
+        samples_Wb = np.random.multivariate_normal(
+            actor.mean, np.diag(actor.variance), args.n_samples
+        )  # (n_samples, n_states + 1)
 
         sample_returns = []
         for j in range(args.n_samples):
@@ -43,20 +39,21 @@ if __name__ == "__main__":
 
         mean = best_samples.mean(axis=0)  # (n_states + 1, )
         variance = best_samples.var(axis=0) + v  # (n_states + 1, )
-        
+
         # Update actor's mean and variance
         actor.mean = mean
         actor.variance = variance + v
 
         # Test
-        # _, _, rewards = episode_rollout(env, actor, args.max_timesteps, render=True, fps=100)
-        # total_return, _ = compute_returns(rewards)
-        total_return = 1
+        _, _, rewards = episode_rollout(env, actor, args.max_timesteps, render=True, fps=args.fps)
+        total_return, _ = compute_returns(rewards)
         print(f"{i}: {sample_returns.mean()} {total_return}")
 
     print("\nTESTING")
     for i in range(10):
-        _, _, rewards = episode_rollout(env, actor, args.max_timesteps, render=True, fps=100)
+        _, _, rewards = episode_rollout(
+            env, actor, args.max_timesteps, render=True, fps=args.fps
+        )
         total_return, _ = compute_returns(rewards)
         print(f"{i}: {total_return}")
 
