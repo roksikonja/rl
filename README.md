@@ -5,3 +5,5 @@ https://medium.com/@thechrisyoon/deriving-policy-gradients-and-implementing-rein
 https://github.com/openai/mujoco-py/issues/492
 
 pip install mujoco_py==2.0.2.8 
+
+TF Agents https://github.com/tensorflow/agents

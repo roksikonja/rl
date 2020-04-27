@@ -9,31 +9,29 @@ from lib.visualizer import Visualizer
 print(tf.__version__)
 visualizer = Visualizer()
 
-MODE = "BASELINE"
-MAX_STEPS = 500
-MAX_EPISODES = 4000
-GAMMA = 0.999
+MAX_STEPS = 300
+MAX_EPISODES = 2000
+GAMMA = 0.995
 FPS = 100
 BATCH = 1
-DECAY_PERIOD = 2000
+DECAY_PERIOD = 1000
 ENV_NAME = "CartPole-v1"
 render = False
 
 # Environment
 env = envs.make(ENV_NAME)
 actor = ActorReinforce(
-    env.observation_space.shape[0], env.action_space.n, 2 ** 4, 2 ** 4, 0.00001
+    env.observation_space.shape[0], env.action_space.n, (16, 16), 0.0001
 )
 
 # Training
 e, episodes, total_returns, alpha_decay = 1, [], [], 1.0
 t_grads = actor.initialize_gradients()  # Initialize zero gradients
 while e < MAX_EPISODES:
+    # if e == MAX_EPISODES - 50:
+    #     render = True
 
     # Generate episode
-    if e == MAX_EPISODES - 10:
-        render = True
-
     _, _, _, rewards, gradients = episode_rollout(env, actor, MAX_STEPS, render)
     total_return, returns = compute_returns(np.array(rewards), GAMMA)
 
@@ -43,6 +41,7 @@ while e < MAX_EPISODES:
     #     actor.apply_gradients(
     #         grads_t, tf.Variable(return_t * np.power(GAMMA, t) * alpha_decay)
     #     )
+
     t_grads = pgt_gradients(
         t_grads, gradients, tf.Variable(returns, dtype=tf.float32), GAMMA
     )
@@ -67,6 +66,8 @@ while e < MAX_EPISODES:
     )
 
     if e % BATCH == 0:
+        # print(sum([np.linalg.norm(grad.numpy()) for grad in t_grads]))
+
         actor.apply_gradients(t_grads, tf.Variable(1.0 / BATCH * alpha_decay))
         t_grads = actor.initialize_gradients()
 

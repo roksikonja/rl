@@ -3,7 +3,7 @@ import time
 import numpy as np
 
 
-def compute_returns(rewards, gamma):
+def compute_returns(rewards, gamma=1.0):
     assert 0 <= gamma <= 1.0
     if gamma == 1.0:
         returns = np.cumsum(rewards)[::-1]
@@ -43,6 +43,9 @@ def episode_rollout(env, actor, max_timesteps, render=False, fps=100):
         gradients.append(grads)  # grad_t
 
         next_state, reward, done, _ = env.step(action)  # s_t+1, r_t+1
+        if done:
+            reward = -reward
+
         rewards.append(reward)  # r_t+1
         next_states.append(next_state)
 
